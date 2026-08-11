@@ -90,6 +90,7 @@ jobs:
             mingw-w64-ucrt-x86_64-rubberband
             mingw-w64-ucrt-x86_64-libusb
             mingw-w64-ucrt-x86_64-portaudio
+            mingw-w64-ucrt-x86_64-ntldd
             mingw-w64-ucrt-x86_64-gettext
             mingw-w64-ucrt-x86_64-itstool
 
@@ -128,7 +129,12 @@ jobs:
             git fetch upstream "refs/tags/$TARGET_REF:refs/tags/$TARGET_REF"
           fi
 
-          git checkout --detach "$TARGET_REF"
+          # The Windows runner enables core.autocrlf, which makes git see the
+          # freshly checked-out tree as "modified" and abort a plain checkout of
+          # the upstream tag. Disable CRLF translation and force the checkout.
+          git config core.autocrlf false
+          git reset --hard HEAD
+          git checkout -f --detach "$TARGET_REF"
           VERSION="$(git describe --tags 2>/dev/null || echo "$TARGET_REF")"
 
           RELEASE_TAG="$TARGET_REF"
