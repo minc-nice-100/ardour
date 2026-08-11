@@ -631,7 +631,10 @@ ARDOUR::init (bool try_optimization, const char* localedir, bool with_gui)
 	}
 #endif
 
-#ifdef HAVE_FFTW35F
+#if defined(HAVE_FFTW35F) && !defined(PLATFORM_WINDOWS)
+	/* fftwf_make_planner_thread_safe lives in fftw's threads library, which the
+	 * mingw build (like upstream's own win build) does not link. Skip it there;
+	 * see the matching HAVE_FFTW35F/!mingw guard in libs/audiographer/wscript. */
 	fftwf_make_planner_thread_safe ();
 #endif
 
