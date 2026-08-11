@@ -129,39 +129,42 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Latest *stable* upstream tag: plain MAJOR.MINOR[.MICRO], no -pre/-rc.
+          STABLE_TAG="$(git tag --list \
+            | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+            | sort -t. -k1,1n -k2,2n -k3,3n \
+            | tail -n 1)"
+
           if [ -n "${{ inputs.ref }}" ]; then
             TARGET_REF="${{ inputs.ref }}"
           elif [[ "${{ github.ref_type }}" == "tag" ]]; then
             TARGET_REF="${{ github.ref_name }}"
           else
-            # Latest *stable* upstream tag: plain MAJOR.MINOR[.MICRO], no -pre/-rc.
-            TARGET_REF="$(git tag --list \
-              | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
-              | sort -t. -k1,1n -k2,2n -k3,3n \
-              | tail -n 1)"
+            # Default: build the local (patched) master HEAD, versioned by the
+            # nearest stable tag. master carries the MSYS2/GCC16 build fixes
+            # needed to compile upstream 9.7 under this toolchain.
+            TARGET_REF="master"
           fi
+          echo "Resolved target ref: $TARGET_REF (stable base: $STABLE_TAG)"
 
-          if [ -z "$TARGET_REF" ]; then
-            echo "::error::Could not resolve a target ref to build."
-            exit 1
-          fi
-          echo "Resolved target ref: $TARGET_REF"
-
-          if ! git rev-parse -q --verify "refs/tags/$TARGET_REF" >/dev/null; then
-            git fetch upstream "refs/tags/$TARGET_REF:refs/tags/$TARGET_REF"
+          if [ "$TARGET_REF" != "master" ] && ! git rev-parse -q --verify "refs/tags/$TARGET_REF" >/dev/null 2>&1; then
+            git fetch upstream "refs/tags/$TARGET_REF:refs/tags/$TARGET_REF" || true
           fi
 
           # The Windows runner enables core.autocrlf, which makes git see the
-          # freshly checked-out tree as "modified" and abort a plain checkout of
-          # the upstream tag. Disable CRLF translation and force the checkout.
+          # freshly checked-out tree as "modified" and abort a plain checkout.
           git config core.autocrlf false
           git reset --hard HEAD
-          git checkout -f --detach "$TARGET_REF"
-          VERSION="$(git describe --tags 2>/dev/null || echo "$TARGET_REF")"
+          if [ "$TARGET_REF" != "master" ]; then
+            git checkout -f --detach "$TARGET_REF"
+          fi
 
-          RELEASE_TAG="$TARGET_REF"
+          # Version via `git describe` against the fetched stable tag.
+          VERSION="$(git describe --tags 2>/dev/null || echo "$STABLE_TAG")"
+
+          RELEASE_TAG="$STABLE_TAG"
           if [[ "$RELEASE_TAG" != v* ]]; then
-            RELEASE_TAG="v$TARGET_REF"
+            RELEASE_TAG="v$STABLE_TAG"
           fi
 
           {
@@ -196,6 +199,13 @@ jobs:
           # const char* (breaks triggerbox.cc / transport_master.cc). Ardour's
           # own --cxx17 option injects -std=c++17, matching the older toolchains
           # upstream builds with.
+          #
+          # Define MINGW_NATIVE_TLS: MSYS2's GCC 16 uses native TLS, and upstream's
+          # auto-detection (wscript greps `gcc -v` for --enable-tls) does not fire
+          # here, so TempoMap's thread_local static fails to link without it.
+          # Upstream's own workaround (tempo.h MINGW_NATIVE_TLS) handles it.
+          export CFLAGS="-DMINGW_NATIVE_TLS"
+          export CXXFLAGS="-DMINGW_NATIVE_TLS"
           python ./waf configure \
             --dist-target=mingw \
             --with-backends=portaudio,dummy \
@@ -203,6 +213,7 @@ jobs:
             --no-dr-mingw \
             --no-phone-home \
             --cxx17 \
+            --keepflags \
             --optimize
 
       - name: Build
