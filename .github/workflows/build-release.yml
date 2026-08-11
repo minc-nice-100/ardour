@@ -129,14 +129,14 @@ jobs:
             libboost-dev libboost-iostreams-dev \
             libcairomm-1.0-dev libcppunit-dev libcurl4-openssl-dev \
             libdbus-1-dev libebook1.2-dev libudev-dev libfftw3-dev libflac-dev \
-            libfluidsynth-dev libfreetype6-dev libglib2.0-dev libglibmm-2.4-dev \
-            libgtkmm-2.4-dev libgnomecanvas2-dev libgnomecanvasmm-2.6-dev \
+            libfluidsynth-dev libfreetype-dev libglib2.0-dev libglibmm-2.4-dev \
+            libgtkmm-2.4-dev \
             libjack-jackd2-dev liblo-dev libltc-dev liblilv-dev \
             libogg-dev libpango1.0-dev libpangomm-1.4-dev libpixman-1-dev \
             libpng-dev libpulse-dev librdf0-dev libreadline-dev librubberband-dev \
             libsamplerate0-dev libsndfile1-dev libsoundtouch-dev libserd-dev \
             libsord-dev libsratom-dev libsuil-dev libtag1-dev libusb-1.0-0-dev \
-            libvamp-dev libvamp-hostsdk3 libwebsockets-dev libx11-dev libxext-dev \
+            vamp-plugin-sdk libvamp-hostsdk3v5 libwebsockets-dev libx11-dev libxext-dev \
             libxml2-dev libxslt1-dev lv2-dev zlib1g-dev
 
       - name: Configure
