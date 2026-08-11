@@ -153,17 +153,23 @@ jobs:
       - name: Configure (mingw)
         run: |
           set -euo pipefail
-          # The msys2 shell does not put the ucrt64 toolchain on PATH by default.
-          export PATH="/ucrt64/bin:$PATH"
-          echo "--- toolchain sanity ---"
-          which gcc g++ x86_64-w64-mingw32-gcc windres pkg-config || true
+          # Put the MSYS POSIX tools (/usr/bin, incl. MSYS python) AND the ucrt64
+          # toolchain (/ucrt64/bin) ahead of any Windows native tools on PATH.
+          # waf's shebang is `#!/usr/bin/env python`; without /usr/bin first it
+          # resolves to the *native* Windows python from setup-msys2, which cannot
+          # spawn the POSIX-path compilers and reports "could not configure a C
+          # compiler!".
+          export PATH="/usr/bin:/ucrt64/bin:$PATH"
+          echo "--- interpreter / toolchain sanity ---"
+          which python gcc g++ windres pkg-config
+          python --version
           gcc --version | head -n1
-          echo "------------------------"
+          echo "--------------------------------------"
           # Point waf at the (unprefixed) ucrt64 compilers explicitly, as the
           # upstream tools/x-win/compile.sh does.
           export CC=gcc CXX=g++ CPP=cpp AR=ar LD=ld NM=nm AS=as \
                  STRIP=strip WINRC=windres RANLIB=ranlib DLLTOOL=dlltool
-          ./waf configure \
+          python ./waf configure \
             --dist-target=mingw \
             --with-backends=portaudio,dummy \
             --noconfirm \
@@ -174,19 +180,19 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
-          export PATH="/ucrt64/bin:$PATH"
-          ./waf build -j"$(nproc)"
+          export PATH="/usr/bin:/ucrt64/bin:$PATH"
+          python ./waf build -j"$(nproc)"
 
       - name: Install into staging dir
         run: |
           set -euo pipefail
-          export PATH="/ucrt64/bin:$PATH"
-          ./waf install --destdir="$GITHUB_WORKSPACE/stage"
+          export PATH="/usr/bin:/ucrt64/bin:$PATH"
+          python ./waf install --destdir="$GITHUB_WORKSPACE/stage"
 
       - name: Bundle runtime DLLs
         run: |
           set -euo pipefail
-          export PATH="/ucrt64/bin:$PATH"
+          export PATH="/usr/bin:/ucrt64/bin:$PATH"
           STAGE="$GITHUB_WORKSPACE/stage"
           # waf --dist-target=mingw installs the program + its DLLs under bin/.
           BINDIR="$(find "$STAGE" -type d -name bin | head -n1)"
