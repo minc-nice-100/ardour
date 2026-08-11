@@ -348,13 +348,15 @@ def configure(conf):
     autowaf.check_pkg(conf, 'fftw3f', uselib_store='FFTW35F',
                       atleast_version='3.3.5', mandatory=False)
 
-    # fftwf_make_planner_thread_safe() (globals.cc) lives in fftw's threads
-    # library. MSYS2 ships it as a separate fftw3f_threads pkg-config module;
-    # fold it into FFTW35F so the symbol resolves at link time.
-    autowaf.check_pkg(conf, 'fftw3f_threads', uselib_store='FFTW35F_THREADS',
-                      mandatory=False)
-    if conf.env['LIB_FFTW35F_THREADS']:
-        conf.env.append_value('LIB_FFTW35F', conf.env['LIB_FFTW35F_THREADS'])
+    # fftwf_make_planner_thread_safe() (globals.cc) lives in fftw's *threads*
+    # library. MSYS2 does NOT ship a fftw3f_threads.pc pkg-config module (only
+    # fftw3.pc/fftw3f.pc/...), but it does ship the libfftw3f_threads import
+    # library. Probe for the library directly and fold it into FFTW35F so the
+    # symbol resolves at link time.
+    if Options.options.dist_target == 'mingw':
+        if conf.check_cc(lib='fftw3f_threads', uselib_store='FFTW35F_THREADS',
+                         mandatory=False, msg="Checking for library fftw3f_threads"):
+            conf.env.append_value('LIB_FFTW35F', conf.env['LIB_FFTW35F_THREADS'])
 
     conf.define('CURRENT_SESSION_FILE_VERSION', CURRENT_SESSION_FILE_VERSION)
 
