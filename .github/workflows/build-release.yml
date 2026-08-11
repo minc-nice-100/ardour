@@ -153,9 +153,14 @@ jobs:
       - name: Configure (mingw)
         run: |
           set -euo pipefail
-          # waf looks for prefixed compilers (x86_64-w64-mingw32-gcc); MSYS2 ucrt64
-          # ships unprefixed ones, so point waf at them explicitly (as the
-          # upstream tools/x-win/compile.sh does).
+          # The msys2 shell does not put the ucrt64 toolchain on PATH by default.
+          export PATH="/ucrt64/bin:$PATH"
+          echo "--- toolchain sanity ---"
+          which gcc g++ x86_64-w64-mingw32-gcc windres pkg-config || true
+          gcc --version | head -n1
+          echo "------------------------"
+          # Point waf at the (unprefixed) ucrt64 compilers explicitly, as the
+          # upstream tools/x-win/compile.sh does.
           export CC=gcc CXX=g++ CPP=cpp AR=ar LD=ld NM=nm AS=as \
                  STRIP=strip WINRC=windres RANLIB=ranlib DLLTOOL=dlltool
           ./waf configure \
@@ -169,12 +174,36 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
+          export PATH="/ucrt64/bin:$PATH"
           ./waf build -j"$(nproc)"
 
       - name: Install into staging dir
         run: |
           set -euo pipefail
+          export PATH="/ucrt64/bin:$PATH"
           ./waf install --destdir="$GITHUB_WORKSPACE/stage"
+
+      - name: Bundle runtime DLLs
+        run: |
+          set -euo pipefail
+          export PATH="/ucrt64/bin:$PATH"
+          STAGE="$GITHUB_WORKSPACE/stage"
+          # waf --dist-target=mingw installs the program + its DLLs under bin/.
+          BINDIR="$(find "$STAGE" -type d -name bin | head -n1)"
+          if [ -z "$BINDIR" ]; then echo "::error::no bin dir under staging"; exit 1; fi
+          echo "Staging bin dir: $BINDIR"
+          # Recursively copy every ucrt64 runtime DLL the binaries depend on so
+          # the zip runs on a machine without MSYS2 (official package.sh does the
+          # same via `cp $PREFIX/bin/*.dll`).
+          for f in $(find "$STAGE" -type f \( -name '*.exe' -o -name '*.dll' \)); do
+            ntldd -R "$f" 2>/dev/null \
+              | awk '/=>/ {print $3}' \
+              | grep -i 'ucrt64' || true
+          done | sort -u | while read -r dll; do
+            win="$(cygpath -u "$dll" 2>/dev/null || echo "$dll")"
+            cp -n "$win" "$BINDIR/" 2>/dev/null || true
+          done
+          echo "Bundled DLL count in bin: $(find "$BINDIR" -name '*.dll' | wc -l)"
 
       - name: Package zip
         id: package
