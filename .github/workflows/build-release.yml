@@ -226,13 +226,19 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/usr/bin:/ucrt64/bin:$PATH"
-          python ./waf install --destdir="$GITHUB_WORKSPACE/stage"
+          # $GITHUB_WORKSPACE is a *Windows* path (D:\a\...). The MSYS POSIX python
+          # that runs waf would treat it as a relative path and produce the bogus
+          # "/d/a/ardour/ardour/D:\a\ardour\ardour". Convert to a POSIX path with
+          # cygpath so waf installs into a real directory.
+          STAGE_U="$(cygpath -u "$GITHUB_WORKSPACE")/stage"
+          mkdir -p "$STAGE_U"
+          python ./waf install --destdir="$STAGE_U"
 
       - name: Bundle runtime DLLs
         run: |
           set -euo pipefail
           export PATH="/usr/bin:/ucrt64/bin:$PATH"
-          STAGE="$GITHUB_WORKSPACE/stage"
+          STAGE="$(cygpath -u "$GITHUB_WORKSPACE")/stage"
           # waf --dist-target=mingw installs the program + its DLLs under bin/.
           BINDIR="$(find "$STAGE" -type d -name bin | head -n1)"
           if [ -z "$BINDIR" ]; then echo "::error::no bin dir under staging"; exit 1; fi
@@ -257,11 +263,15 @@ jobs:
           VERSION="${{ steps.meta.outputs.version }}"
           SAFE_VER="$(echo "$VERSION" | tr -c 'A-Za-z0-9._-' '-')"
           ARCHIVE="Ardour-${SAFE_VER}-windows-x86_64.zip"
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          ( cd "$GITHUB_WORKSPACE/stage" && zip -r -q "$GITHUB_WORKSPACE/dist/$ARCHIVE" . )
-          ls -lh "$GITHUB_WORKSPACE/dist"
-          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
-          echo "archive_path=$GITHUB_WORKSPACE/dist/$ARCHIVE" >> "$GITHUB_OUTPUT"
+          # Work in POSIX paths under the msys2 shell.
+          WS_U="$(cygpath -u "$GITHUB_WORKSPACE")"
+          mkdir -p "$WS_U/dist"
+          ( cd "$WS_U/stage" && zip -r -q "$WS_U/dist/$ARCHIVE" . )
+          ls -lh "$WS_U/dist"
+          {
+            echo "archive=$ARCHIVE"
+            echo "archive_path=$GITHUB_WORKSPACE/dist/$ARCHIVE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
