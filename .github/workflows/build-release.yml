@@ -93,6 +93,28 @@ jobs:
             mingw-w64-ucrt-x86_64-ntldd
             mingw-w64-ucrt-x86_64-gettext
             mingw-w64-ucrt-x86_64-itstool
+            mingw-w64-ucrt-x86_64-aubio
+            mingw-w64-ucrt-x86_64-cairo
+            mingw-w64-ucrt-x86_64-cairomm
+            mingw-w64-ucrt-x86_64-pango
+            mingw-w64-ucrt-x86_64-pangomm
+            mingw-w64-ucrt-x86_64-libsamplerate
+            mingw-w64-ucrt-x86_64-libogg
+            mingw-w64-ucrt-x86_64-flac
+            mingw-w64-ucrt-x86_64-libvorbis
+            mingw-w64-ucrt-x86_64-fftw
+            mingw-w64-ucrt-x86_64-fluidsynth
+            mingw-w64-ucrt-x86_64-lv2
+            mingw-w64-ucrt-x86_64-serd
+            mingw-w64-ucrt-x86_64-sord
+            mingw-w64-ucrt-x86_64-sratom
+            mingw-w64-ucrt-x86_64-lilv
+            mingw-w64-ucrt-x86_64-libsigc++
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-readline
+            mingw-w64-ucrt-x86_64-libwebsockets
+            mingw-w64-ucrt-x86_64-cppunit
+            mingw-w64-ucrt-x86_64-lrdf
 
       - name: Fetch upstream release tags
         run: |
