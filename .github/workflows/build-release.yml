@@ -1,13 +1,17 @@
-name: Build & Release Ardour
+name: Build & Release Ardour (Windows)
 
-# Builds the latest *stable* Ardour from source (Linux, waf build system) and
-# publishes the resulting bundle to GitHub Releases.
+# Builds the latest *stable* Ardour for Windows (x86_64) and publishes the
+# resulting portable bundle (.zip) to GitHub Releases.
+#
+# Toolchain: MSYS2 (ucrt64) provides the mingw-w64 compiler and every external
+# dependency (glib/glibmm/giomm/sndfile/curl/archive/lo/taglib/vamp/rubberband/
+# boost/libusb). Ardour vendors its own GTK stack (libs/tk/ytk...), so the GUI
+# needs no system GTK. The build is driven by waf with --dist-target=mingw.
 #
 # Ardour derives its version from `git describe` (tags of the form MAJOR.MINOR,
 # e.g. "9.7"). This fork carries no tags, so the workflow fetches the upstream
-# release tags, checks out the newest *stable* one (excluding -pre*/-rc*
-# pre-releases) by default, builds it, packages the installed tree as a tarball
-# and uploads it to a Release.
+# release tags and checks out the newest *stable* one (no -pre*/-rc* suffix)
+# by default, builds it, zips the installed tree and uploads it to a Release.
 #
 # Trigger it manually from the Actions tab (workflow_dispatch), or push a tag.
 
@@ -35,27 +39,59 @@ permissions:
   contents: write # required to create/update GitHub Releases
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-win-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   UPSTREAM_REPO: https://github.com/Ardour/ardour.git
+  MSYS2_PATH_TYPE: inherit
 
 jobs:
   build:
-    name: Build Ardour (Linux x86_64)
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    name: Build Ardour (Windows x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: msys2 {0}
     outputs:
       version: ${{ steps.meta.outputs.version }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
-      tarball: ${{ steps.package.outputs.tarball }}
+      archive: ${{ steps.package.outputs.archive }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           # Full history is required: the version comes from `git describe`.
           fetch-depth: 0
+
+      - name: Set up MSYS2 (ucrt64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            python
+            rsync
+            zip
+            unzip
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-boost
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-glibmm
+            mingw-w64-ucrt-x86_64-libsndfile
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libarchive
+            mingw-w64-ucrt-x86_64-liblo
+            mingw-w64-ucrt-x86_64-taglib
+            mingw-w64-ucrt-x86_64-vamp-plugin-sdk
+            mingw-w64-ucrt-x86_64-rubberband
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-portaudio
+            mingw-w64-ucrt-x86_64-gettext
+            mingw-w64-ucrt-x86_64-itstool
 
       - name: Fetch upstream release tags
         run: |
@@ -67,21 +103,15 @@ jobs:
 
       - name: Resolve target ref & version
         id: meta
-        shell: bash
         run: |
           set -euo pipefail
 
-          # Determine which ref to build.
           if [ -n "${{ inputs.ref }}" ]; then
-            # Manual dispatch with an explicit ref.
             TARGET_REF="${{ inputs.ref }}"
           elif [[ "${{ github.ref_type }}" == "tag" ]]; then
-            # Triggered by pushing a tag.
             TARGET_REF="${{ github.ref_name }}"
           else
-            # Auto-detect the latest *stable* upstream release tag.
-            # Stable tags are plain MAJOR.MINOR (optionally MAJOR.MINOR.MICRO),
-            # i.e. they do NOT carry a -pre/-rc suffix.
+            # Latest *stable* upstream tag: plain MAJOR.MINOR[.MICRO], no -pre/-rc.
             TARGET_REF="$(git tag --list \
               | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
               | sort -t. -k1,1n -k2,2n -k3,3n \
@@ -94,17 +124,13 @@ jobs:
           fi
           echo "Resolved target ref: $TARGET_REF"
 
-          # Resolve it to a commit and make sure we have it locally.
           if ! git rev-parse -q --verify "refs/tags/$TARGET_REF" >/dev/null; then
             git fetch upstream "refs/tags/$TARGET_REF:refs/tags/$TARGET_REF"
           fi
 
-          # Human-readable version: exact tag name if we are right on it,
-          # otherwise the `git describe` form (e.g. 9.7-12-gabcdef).
           git checkout --detach "$TARGET_REF"
           VERSION="$(git describe --tags 2>/dev/null || echo "$TARGET_REF")"
 
-          # Compose the values used downstream.
           RELEASE_TAG="$TARGET_REF"
           if [[ "$RELEASE_TAG" != v* ]]; then
             RELEASE_TAG="v$TARGET_REF"
@@ -118,35 +144,19 @@ jobs:
 
           echo "::notice title=Building Ardour::version=$VERSION (ref $TARGET_REF, release tag $RELEASE_TAG)"
 
-      - name: Install build dependencies
+      - name: Configure (mingw)
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            build-essential git python3 pkg-config rsync curl ca-certificates \
-            gettext intltool itstool \
-            libaubio-dev libasound2-dev libarchive-dev libavahi-client-dev \
-            libboost-dev libboost-iostreams-dev \
-            libcairomm-1.0-dev libcppunit-dev libcurl4-openssl-dev \
-            libdbus-1-dev libebook1.2-dev libudev-dev libfftw3-dev libflac-dev \
-            libfluidsynth-dev libfreetype-dev libglib2.0-dev libglibmm-2.4-dev \
-            libgtkmm-2.4-dev \
-            libjack-jackd2-dev liblo-dev libltc-dev liblilv-dev \
-            libogg-dev libpango1.0-dev libpangomm-1.4-dev libpixman-1-dev \
-            libpng-dev libpulse-dev librdf0-dev libreadline-dev librubberband-dev \
-            libsamplerate0-dev libsndfile1-dev libsoundtouch-dev libserd-dev \
-            libsord-dev libsratom-dev libsuil-dev libtag1-dev libusb-1.0-0-dev \
-            vamp-plugin-sdk libvamp-hostsdk3v5 libwebsockets-dev libx11-dev libxext-dev \
-            libxml2-dev libxslt1-dev lv2-dev zlib1g-dev
-
-      - name: Configure
-        run: |
-          set -euo pipefail
+          # waf looks for prefixed compilers (x86_64-w64-mingw32-gcc); MSYS2 ucrt64
+          # ships unprefixed ones, so point waf at them explicitly (as the
+          # upstream tools/x-win/compile.sh does).
+          export CC=gcc CXX=g++ CPP=cpp AR=ar LD=ld NM=nm AS=as \
+                 STRIP=strip WINRC=windres RANLIB=ranlib DLLTOOL=dlltool
           ./waf configure \
-            --prefix=/usr \
-            --with-backends=jack,alsa,pulseaudio,dummy \
-            --freedesktop \
+            --dist-target=mingw \
+            --with-backends=portaudio,dummy \
             --noconfirm \
+            --no-dr-mingw \
             --no-phone-home \
             --optimize
 
@@ -158,51 +168,49 @@ jobs:
       - name: Install into staging dir
         run: |
           set -euo pipefail
-          DESTDIR="$GITHUB_WORKSPACE/stage" ./waf install
+          ./waf install --destdir="$GITHUB_WORKSPACE/stage"
 
-      - name: Package tarball
+      - name: Package zip
         id: package
-        shell: bash
         run: |
           set -euo pipefail
           VERSION="${{ steps.meta.outputs.version }}"
-          # Sanitise the version for use in a filename.
           SAFE_VER="$(echo "$VERSION" | tr -c 'A-Za-z0-9._-' '-')"
-          TARBALL="Ardour-${SAFE_VER}-linux-x86_64.tar.gz"
+          ARCHIVE="Ardour-${SAFE_VER}-windows-x86_64.zip"
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          tar -C "$GITHUB_WORKSPACE/stage" -czf "$GITHUB_WORKSPACE/dist/$TARBALL" .
+          ( cd "$GITHUB_WORKSPACE/stage" && zip -r -q "$GITHUB_WORKSPACE/dist/$ARCHIVE" . )
           ls -lh "$GITHUB_WORKSPACE/dist"
-          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
-          echo "tarball_path=$GITHUB_WORKSPACE/dist/$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "archive_path=$GITHUB_WORKSPACE/dist/$ARCHIVE" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.tarball }}
-          path: ${{ steps.package.outputs.tarball_path }}
+          name: ${{ steps.package.outputs.archive }}
+          path: ${{ steps.package.outputs.archive_path }}
           if-no-files-found: error
           retention-days: 14
 
   release:
     name: Publish to GitHub Releases
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     if: always() && needs.build.result == 'success'
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build.outputs.tarball }}
+          name: ${{ needs.build.outputs.archive }}
           path: dist
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.release_tag }}
-          name: Ardour ${{ needs.build.outputs.version }}
+          name: Ardour ${{ needs.build.outputs.version }} (Windows x86_64)
           # On tag pushes there is no `inputs` context; default to non-prerelease.
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           generate_release_notes: true
-          files: dist/${{ needs.build.outputs.tarball }}
+          files: dist/${{ needs.build.outputs.archive }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
