@@ -191,12 +191,18 @@ jobs:
           # upstream tools/x-win/compile.sh does.
           export CC=gcc CXX=g++ CPP=cpp AR=ar LD=ld NM=nm AS=as \
                  STRIP=strip WINRC=windres RANLIB=ranlib DLLTOOL=dlltool
+          # Force the C++17 standard. MSYS2's GCC 16 defaults to C++20, where
+          # u8"..." literals are char8_t* and no longer implicitly convert to
+          # const char* (breaks triggerbox.cc / transport_master.cc). Ardour's
+          # own --cxx17 option injects -std=c++17, matching the older toolchains
+          # upstream builds with.
           python ./waf configure \
             --dist-target=mingw \
             --with-backends=portaudio,dummy \
             --noconfirm \
             --no-dr-mingw \
             --no-phone-home \
+            --cxx17 \
             --optimize
 
       - name: Build
